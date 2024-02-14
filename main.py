@@ -1,81 +1,46 @@
-from flask import Flask, request, jsonify
-# from transformers import GPT2Tokenizer, GPT2LMHeadModel
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
+from flask import Flask, request, jsonify
+import random
 
-import torch
-
-app = Flask(__name__)
-
-# Load pre-trained GPT-2 model and tokenizer
-# tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
-# model = GPT2LMHeadModel.from_pretrained("gpt2")
-# tokenizer = GPT2Tokenizer.from_pretrained("EleutherAI/gpt-neo-125M")
-# model = GPT2LMHeadModel.from_pretrained("EleutherAI/gpt-neo-125M")
-# Function to generate summary using GPT-2
-model_name = "Falconsai/text_summarization"
+# Model and tokenizer initialization (load once at startup)
+model_name = "facebook/bart-base"
 tokenizer = AutoTokenizer.from_pretrained(model_name)
 model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
 
-import nltk
-from nltk.corpus import wordnet
-nltk.download('wordnet')
+# Flask app setup
+app = Flask(__name__)
 
-import random
+@app.route("/summarize", methods=["POST"])
+def summarize():
+    # Get article text from request
+    article = request.json["article"]
 
-# Sample cinema-related dataset (you can replace this with a larger dataset)
-cinema_dataset = [
-    "film", "movie", "cinema", "actor", "actress", "director", 
-    "producer", "screenplay", "script", "scene", "shot", 
-    "camera", "dialogue", "plot", "genre", "award", 
-    "festival", "box office", "sequel"
-]
+    # Input preparation
+    inputs = tokenizer(
+        f"summarize: {article}", return_tensors="pt", max_length=512, truncation=True
+    )
 
-def augment_input_text(text):
-    words = text.split()
-    augmented_text = []
-    for word in words:
-        synonyms = wordnet.synsets(word)
-        if synonyms:
-            synonym = random.choice(synonyms).lemmas()[0].name()
-            augmented_text.append(synonym)
-        elif word.lower() in cinema_dataset:
-            augmented_text.append(word)
-        else:
-            augmented_text.append(word)
-    return ' '.join(augmented_text)
-
-def generate_summary(text, max_words=60, num_candidates=5, temperature=0.7, seed=None):
-    if seed:
-        torch.manual_seed(seed)
-        random.seed(seed)
-    
-    augmented_texts = [text] + [augment_input_text(text) for _ in range(num_candidates-1)]
+    # Generate multiple summaries with temperature variations
     summaries = []
-    for augmented_text in augmented_texts:
-        input_ids = tokenizer.encode(augmented_text, return_tensors="pt", max_length=512, truncation=True)
-        summary_ids = model.generate(input_ids, max_length=512, num_return_sequences=1, pad_token_id=model.config.eos_token_id, temperature=temperature)
-        summary = tokenizer.decode(summary_ids[0], skip_special_tokens=True)
-        summaries.append(summary)
-    
-    selected_summary = random.choice(summaries)
-    
-    # Post-process the summary to ensure it contains at most 60 words
-    summary_words = selected_summary.split()
-    if len(summary_words) > max_words:
-        selected_summary = ' '.join(summary_words[:max_words])
-    
-    return selected_summary
+    for _ in range(3):  # Generate 3 summaries with different randomness
+        temperature = random.uniform(0.7, 1.3)  # Vary temperature for diverse outputs
+        output = model.generate(
+            inputs["input_ids"],
+            max_length=60,
+            min_length=30,
+            num_beams=2,
+            temperature=temperature,
+        )
+        summaries.append(tokenizer.decode(output[0], skip_special_tokens=True))
 
+    # Select the best summary by length and uniqueness
+    best_summary = max(summaries, key=lambda s: len(s))  # Choose longest summary
+    if len(set(summaries)) > 1:  # If summaries differ, choose longest
+        while best_summary in summaries[:-1]:  # Check for duplicates
+            summaries.remove(best_summary)
+            best_summary = max(summaries, key=lambda s: len(s))
 
+    return jsonify({"summary": best_summary})
 
-
-
-
-@app.route('/summarize', methods=['POST'])
-def summarize_text():
-    article = request.json['article']
-    summary = generate_summary(article,60)
-    return jsonify({'summary': summary})
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     app.run(debug=True)
