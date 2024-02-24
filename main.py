@@ -13,7 +13,7 @@ def generate_summary(article, max_length=150,min_length=90):
     temperature = round(random.uniform(0.0, 0.7), 2)  # Vary temperature for diverse outputs
     inputs = artickle_tokenizer.encode(article, return_tensors="pt",   max_length=412, truncation=True)
     summary_ids = artickle_model.generate(inputs, min_length=min_length, max_length=max_length, temperature=temperature, length_penalty=5.0, num_beams=4, early_stopping=True,do_sample=True)
-    summary = tokenizer.decode(summary_ids[0], skip_special_tokens=True)
+    summary = artickle_tokenizer.decode(summary_ids[0], skip_special_tokens=True)
     return summary
 
 @app.route('/summarize', methods=['POST'])
@@ -29,15 +29,17 @@ tokenizer = T5Tokenizer.from_pretrained(checkpoint)
 model = T5ForConditionalGeneration.from_pretrained(checkpoint)
 
 def headline_rephraser(prompt,max_length=12,min_length=7):
-    complex_tokenized = tokenizer(prompt,padding="max_length",truncation=True,                               max_length=256,return_tensors='pt')
-    simple_tokenized = model.generate(complex_tokenized['input_ids'], attention_mask = complex_tokenized['attention_mask'], max_length=256, num_beams=5)
-    generated_text = tokenizer.batch_decode(simple_tokenized, skip_special_tokens=True)
-    return generated_text
+    temperature = round(random.uniform(0.0, 2.0), 2)  # Vary temperature for diverse outputs
+    complex_tokenized = tokenizer(complex_sentence, padding="max_length", truncation=True,max_length=256, return_tensors='pt')
+    simple_tokenized = model.generate(complex_tokenized['input_ids'], attention_mask = complex_tokenized['attention_mask'], max_length=256, num_beams=5,temperature=temperature)
+    simple_sentences = tokenizer.batch_decode(simple_tokenized, skip_special_tokens=True)
+    print(simple_sentences)
+    return simple_sentences
 
 @app.route("/rephrase",methods=['POST'])
 def rephrase_headline():
     headline = request.json['headline']
-    summary = generate_summary(headline,50,120)
+    summary = headline_rephraser(headline,30,30)
     return jsonify({'headline': summary})
 
 if __name__ == '__main__':
